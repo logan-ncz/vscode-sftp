@@ -52,6 +52,7 @@ const configScheme = {
     autoDelete: Joi.boolean(),
   },
   concurrency: Joi.number().integer(),
+  ftpConcurrency: Joi.number().integer(),
 
   syncOption: {
     delete: Joi.boolean(),
@@ -84,7 +85,8 @@ const defaultConfig = {
   //   autoUpload: false,
   //   autoDelete: false,
   // },
-  concurrency: 4,
+  concurrency: 5,
+  ftpConcurrency: 5,
   // limitOpenFilesOnRemote: false
 
   protocol: 'sftp',

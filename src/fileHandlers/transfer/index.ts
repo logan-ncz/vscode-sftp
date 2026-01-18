@@ -16,7 +16,10 @@ function createTransferHandle(direction: TransferDirection) {
         srcFs: remoteFs,
         targetFsPath: localFsPath,
         targetFs: localFs,
-        transferOption: option,
+        transferOption: {
+          ...option,
+          protocol: this.config.protocol,
+        },
         transferDirection: TransferDirection.REMOTE_TO_LOCAL,
       };
     } else {
@@ -25,7 +28,10 @@ function createTransferHandle(direction: TransferDirection) {
         srcFs: localFs,
         targetFsPath: remoteFsPath,
         targetFs: remoteFs,
-        transferOption: option,
+        transferOption: {
+          ...option,
+          protocol: this.config.protocol,
+        },
         filePerm: this.config.filePerm,
         dirPerm: this.config.dirPerm,
         transferDirection: TransferDirection.LOCAL_TO_REMOTE,

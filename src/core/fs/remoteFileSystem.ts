@@ -3,6 +3,7 @@ import { RemoteClient, ConnectOption, RemoteClientConfig } from '../remote-clien
 
 interface RFSOptionDefaults {
   remoteTimeOffsetInHours: number;
+  ftpConcurrency?: number;
 }
 
 type RFSOption = Partial<RFSOptionDefaults> & {

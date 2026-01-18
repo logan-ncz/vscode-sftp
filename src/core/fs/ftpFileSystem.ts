@@ -1,9 +1,9 @@
-import * as PQueue from 'p-queue';
 import { Readable } from 'stream';
 import logger from '../../logger';
 import { FileEntry, FileType, FileStats, FileOption } from './fileSystem';
 import RemoteFileSystem from './remoteFileSystem';
 import { FTPClient } from '../remote-client';
+import Scheduler from '../scheduler';
 
 interface FtpFileHandle {
   path: string;
@@ -36,6 +36,7 @@ function toNumMode(rightObj) {
 
 export default class FTPFileSystem extends RemoteFileSystem {
   private _supportMFMT: boolean = true;
+  private queue: Scheduler;
 
   static getFileType(type) {
     if (type === 'd') {
@@ -49,7 +50,36 @@ export default class FTPFileSystem extends RemoteFileSystem {
     }
   }
 
-  private queue: any = new PQueue({ concurrency: 1 });
+  constructor(pathResolver, option) {
+    super(pathResolver, option);
+
+    // Initialiser la queue avec une concurrence par défaut de 5
+    // Cela permet plusieurs opérations FTP en parallèle tout en évitant
+    // l'épuisement des ports sur les serveurs avec une plage limitée (comme VSFTPD)
+    // La concurrence peut être ajustée via la configuration ftpConcurrency
+    const concurrency = (option && option.ftpConcurrency) || 5;
+    this.queue = new Scheduler({ concurrency });
+  }
+
+  /**
+   * Ferme le socket passif du client FTP de manière sécurisée et immédiate
+   * Cette fonction aide à éviter l'épuisement des ports sur les serveurs FTP
+   * avec une plage de ports limitée (comme VSFTPD)
+   */
+  private closePasvSocket(ftpClient: any, delay: number = 0): void {
+    setTimeout(() => {
+      if (ftpClient && ftpClient._pasvSocket) {
+        try {
+          if (!ftpClient._pasvSocket.destroyed) {
+            ftpClient._pasvSocket.destroy();
+          }
+        } catch (e) {
+          // Ignorer les erreurs de fermeture silencieusement
+          // Le socket peut déjà être fermé ou dans un état invalide
+        }
+      }
+    }, delay);
+  }
 
   get ftp() {
     return this.getClient().getFsClient();
@@ -274,140 +304,218 @@ export default class FTPFileSystem extends RemoteFileSystem {
   }
 
   async renameAtomic(srcPath: string, destPath: string): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.rename(srcPath, destPath, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.rename(srcPath, destPath, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 
   private async atomicList(path: string): Promise<any[]> {
-    const task = () =>
-      new Promise<any[]>((resolve, reject) => {
-        this.ftp.list(path, (err, stats) => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<any[]>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            const ftpClient = this.ftp;
+            ftpClient.list(path, (err, stats) => {
+              // Fermer le socket passif après la liste, même en cas d'erreur
+              this.closePasvSocket(ftpClient);
 
-          resolve(stats || []);
-        });
-      });
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-    return this.queue.add(task);
+              resolve(stats || []);
+              taskResolve();
+            });
+          }),
+      };
+
+      this.queue.add(task);
+    });
   }
 
   private async atomicGet(path: string): Promise<Readable> {
-    const task = () =>
-      new Promise<Readable>((resolve, reject) => {
-        this.ftp.get(path, (err, stream) => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<Readable>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            const ftpClient = this.ftp;
+            ftpClient.get(path, (err, stream) => {
+              if (err) {
+                // Fermer le socket passif même en cas d'erreur
+                this.closePasvSocket(ftpClient);
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve(stream);
-        });
-      });
+              // Fermer le socket passif quand le stream se termine naturellement
+              stream.once('end', () => {
+                this.closePasvSocket(ftpClient);
+              });
 
-    return this.queue.add(task);
+              stream.once('close', () => {
+                this.closePasvSocket(ftpClient);
+              });
+
+              stream.once('error', () => {
+                this.closePasvSocket(ftpClient);
+              });
+
+              resolve(stream);
+              taskResolve();
+            });
+          }),
+      };
+
+      this.queue.add(task);
+    });
   }
 
   private async atomicPut(input: Readable, path: string): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.put(input, path, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            const ftpClient = this.ftp;
+            ftpClient.put(input, path, err => {
+              // Fermer le socket passif après le transfert, même en cas d'erreur
+              this.closePasvSocket(ftpClient);
 
-          resolve();
-        });
-      });
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-    return this.queue.add(task);
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
+
+      this.queue.add(task);
+    });
   }
 
   private async atomicDeleteFile(path: string): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.delete(path, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.delete(path, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 
   private async atomicMakeDir(path: string): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.mkdir(path, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.mkdir(path, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 
   private async atomicRemoveDir(
     path: string,
     recursive: boolean
   ): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.rmdir(path, recursive, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.rmdir(path, recursive, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 
   private async atomicSite(command: string): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.site(command, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.site(command, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 
   private async atomicSetLastMod(path: string, date: Date): Promise<void> {
-    const task = () =>
-      new Promise<void>((resolve, reject) => {
-        this.ftp.setLastMod(path, date, err => {
-          if (err) {
-            return reject(err);
-          }
+    return new Promise<void>((resolve, reject) => {
+      const task = {
+        run: () =>
+          new Promise<void>((taskResolve, taskReject) => {
+            this.ftp.setLastMod(path, date, err => {
+              if (err) {
+                taskReject(err);
+                return reject(err);
+              }
 
-          resolve();
-        });
-      });
+              resolve();
+              taskResolve();
+            });
+          }),
+      };
 
-    return this.queue.add(task);
+      this.queue.add(task);
+    });
   }
 }

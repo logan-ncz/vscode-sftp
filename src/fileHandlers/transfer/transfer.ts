@@ -12,7 +12,9 @@ import { flatten } from '../../utils';
 import logger from '../../logger';
 import { getOpenTextDocuments } from '../../host';
 
-interface InternalTransferOption extends FileHandleOption, TransferTaskTransferOption {}
+interface InternalTransferOption extends FileHandleOption, TransferTaskTransferOption {
+  protocol?: string;
+}
 
 type ExternalTransferOption<T extends InternalTransferOption> = Pick<
   T,
@@ -90,25 +92,58 @@ async function transferFolder(
   }
 
   const fileEntries = await srcFs.list(srcFsPath);
-  await Promise.all(
-    fileEntries.map(file =>
-      transferWithType(
-        {
-          ...config,
-          transferOption: {
-            ...config.transferOption,
-            mtime: file.mtime,
-            atime: file.atime,
+
+  // Pour FTP, traiter les fichiers par lots de 3 pour éviter l'épuisement des ports
+  // Pour SFTP, utiliser Promise.all() comme avant pour garder les performances
+  const isFtp = config.transferOption.protocol === 'ftp';
+  const batchSize = 3;
+
+  if (isFtp) {
+    // Traiter par lots de 3 fichiers pour FTP
+    for (let i = 0; i < fileEntries.length; i += batchSize) {
+      const batch = fileEntries.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(file =>
+          transferWithType(
+            {
+              ...config,
+              transferOption: {
+                ...config.transferOption,
+                mtime: file.mtime,
+                atime: file.atime,
+              },
+              srcFsPath: file.fspath,
+              targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
+              ensureDirExist: false,
+            },
+            file.type,
+            collect
+          )
+        )
+      );
+    }
+  } else {
+    // SFTP : comportement original (Promise.all illimité)
+    await Promise.all(
+      fileEntries.map(file =>
+        transferWithType(
+          {
+            ...config,
+            transferOption: {
+              ...config.transferOption,
+              mtime: file.mtime,
+              atime: file.atime,
+            },
+            srcFsPath: file.fspath,
+            targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
+            ensureDirExist: false,
           },
-          srcFsPath: file.fspath,
-          targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
-          ensureDirExist: false,
-        },
-        file.type,
-        collect
+          file.type,
+          collect
+        )
       )
-    )
-  );
+    );
+  }
 
   logger.info('folder transfered.');
 }

@@ -28,6 +28,7 @@ class KeepAliveRemoteFs {
     option: ConnectOption & {
       protocol: string;
       remoteTimeOffsetInHours: number;
+      ftpConcurrency?: number;
     }
   ): Promise<RemoteFileSystem> {
     if (this.isValid) {
@@ -74,6 +75,7 @@ class KeepAliveRemoteFs {
     this.fs = new FsConstructor(upath, {
       clientOption: connectOption,
       remoteTimeOffsetInHours: option.remoteTimeOffsetInHours,
+      ftpConcurrency: option.ftpConcurrency,
     });
     this.fs.onDisconnected(this.invalid.bind(this));
 

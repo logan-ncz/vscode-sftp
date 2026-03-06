@@ -88,62 +88,32 @@ async function transferFolder(
   // If dirPerm is configured, we chmod the remote directory after creation.
   if(config.transferOption.dirPerm) {
     logger.info("chmod remote directory as configured by dirPerm, dirPerm is: ", config.transferOption.dirPerm)
-    targetFs.chmod(targetFsPath, parseInt(String(config.transferOption.dirPerm), 8))
+    await targetFs.chmod(targetFsPath, parseInt(String(config.transferOption.dirPerm), 8))
   }
 
   const fileEntries = await srcFs.list(srcFsPath);
 
-  // Pour FTP, traiter les fichiers par lots de 3 pour éviter l'épuisement des ports
-  // Pour SFTP, utiliser Promise.all() comme avant pour garder les performances
-  const isFtp = config.transferOption.protocol === 'ftp';
-  const batchSize = 3;
-
-  if (isFtp) {
-    // Traiter par lots de 3 fichiers pour FTP
-    for (let i = 0; i < fileEntries.length; i += batchSize) {
-      const batch = fileEntries.slice(i, i + batchSize);
-      await Promise.all(
-        batch.map(file =>
-          transferWithType(
-            {
-              ...config,
-              transferOption: {
-                ...config.transferOption,
-                mtime: file.mtime,
-                atime: file.atime,
-              },
-              srcFsPath: file.fspath,
-              targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
-              ensureDirExist: false,
-            },
-            file.type,
-            collect
-          )
-        )
-      );
-    }
-  } else {
-    // SFTP : comportement original (Promise.all illimité)
-    await Promise.all(
-      fileEntries.map(file =>
-        transferWithType(
-          {
-            ...config,
-            transferOption: {
-              ...config.transferOption,
-              mtime: file.mtime,
-              atime: file.atime,
-            },
-            srcFsPath: file.fspath,
-            targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
-            ensureDirExist: false,
+  // Pour FTP: la sérialisation est gérée par le Scheduler avec concurrency=1
+  // Pour SFTP: Promise.all() permet le traitement parallèle optimal
+  await Promise.all(
+    fileEntries.map(file =>
+      transferWithType(
+        {
+          ...config,
+          transferOption: {
+            ...config.transferOption,
+            mtime: file.mtime,
+            atime: file.atime,
           },
-          file.type,
-          collect
-        )
+          srcFsPath: file.fspath,
+          targetFsPath: targetFs.pathResolver.join(targetFsPath, file.name),
+          ensureDirExist: false,
+        },
+        file.type,
+        collect
       )
-    );
-  }
+    )
+  );
 
   logger.info('folder transfered.');
 }
@@ -195,7 +165,7 @@ async function transferWithType(
         // If dirPerm is configured, we chmod the remote directory after creation.
         if(config.transferOption.dirPerm) {
           logger.info("Running chmod on remote directory with perm: ", config.transferOption.dirPerm)
-          targetFs.chmod(targetFs.pathResolver.dirname(targetFsPath), parseInt(String(config.transferOption.dirPerm), 8));
+          await targetFs.chmod(targetFs.pathResolver.dirname(targetFsPath), parseInt(String(config.transferOption.dirPerm), 8));
         }
       }
       // <<< save before upload: start

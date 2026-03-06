@@ -107,18 +107,33 @@ class Scheduler {
     this._concurrency = concurrency;
   }
 
-  add(task: Task | taskFunc, opt?: { priority: number }) {
-    if (typeof task === 'function') {
-      task = {
-        run: task,
-      };
-    }
+  add(task: Task | taskFunc, opt?: { priority: number }): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      // Normaliser la tâche en objet Task si c'est une fonction
+      const taskObj: Task = typeof task === 'function' ? { run: task } : task;
 
-    if (!this._isPaused && this._pendingCount < this._concurrency) {
-      this._runTask(task);
-    } else {
-      this._queue.enqueue(task, opt);
-    }
+      // Wrapper la fonction run pour capturer le résultat/erreur
+      const originalRun = taskObj.run;
+      const wrappedTask: Task = {
+        run: async () => {
+          try {
+            const result = await originalRun();
+            resolve(result);
+            return result;
+          } catch (err) {
+            reject(err);
+            throw err;
+          }
+        },
+      };
+
+      // Ajouter la tâche wrappée à la queue ou l'exécuter directement
+      if (!this._isPaused && this._pendingCount < this._concurrency) {
+        this._runTask(wrappedTask);
+      } else {
+        this._queue.enqueue(wrappedTask, opt);
+      }
+    });
   }
 
   addAll(tasks: (Task | taskFunc)[]) {

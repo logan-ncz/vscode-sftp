@@ -82,6 +82,7 @@ export const sync2Remote = createFileHandler<SyncOption>({
       skipCreate: syncOption.skipCreate,
       ignoreExisting: syncOption.ignoreExisting,
       update: syncOption.update,
+      protocol: config.protocol,
     };
   },
   afterHandle() {
@@ -120,6 +121,7 @@ export const sync2Local = createFileHandler<SyncOption>({
       skipCreate: syncOption.skipCreate,
       ignoreExisting: syncOption.ignoreExisting,
       update: syncOption.update,
+      protocol: config.protocol,
     };
   },
 });
@@ -135,6 +137,7 @@ export const upload = createFileHandler<TransferOption>({
       openSsh: config.openSsh,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
   afterHandle() {
@@ -153,6 +156,7 @@ export const uploadFile = createFileHandler<TransferOption>({
       openSsh: config.openSsh,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
   afterHandle() {
@@ -171,6 +175,7 @@ export const uploadFolder = createFileHandler<TransferOption>({
       openSsh: config.openSsh,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
   afterHandle() {
@@ -187,6 +192,7 @@ export const download = createFileHandler<TransferOption>({
       perserveTargetMode: false,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
 });
@@ -200,6 +206,7 @@ export const downloadFile = createFileHandler<TransferOption>({
       perserveTargetMode: false,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
 });
@@ -213,6 +220,7 @@ export const downloadFolder = createFileHandler<TransferOption>({
       perserveTargetMode: false,
       // remoteTimeOffsetInHours: config.remoteTimeOffsetInHours,
       ignore: config.ignore,
+      protocol: config.protocol,
     };
   },
 });

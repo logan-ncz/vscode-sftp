@@ -2,7 +2,7 @@
   "name": "sftp",
   "displayName": "SFTP (Fork by loganncz)",
   "description": "SFTP/FTP sync - Fork with FTP concurrency improvements",
-  "version": "1.16.4",
+  "version": "1.16.5",
   "publisher": "loganncz",
   "author": "Logan Nochez (https://github.com/loganncz)",
   "engines": {
